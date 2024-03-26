@@ -255,41 +255,25 @@ accum_loop:
   ;;
   ;;  (A[12:32] ++ B[0:12], B[12:32] ++ C[0:12], C[12:16])
 
-  ;; Compute first element A[12:32] ++ B[0:12].
+  ;; Shift addr bytes.
   swap2                 ;; [addr, pk[0:32], pk[32:48], record_offset, i, ..]
   push 12*8             ;; [96, addr, pk[0:32], pk[32:48], record_offset, i, ..]
   shl                   ;; [addr<<96, pk[0:32], pk[32:48], record_offset, i, ..]
-  dup2                  ;; [pk[0:32], addr<<96, pk[0:32], pk[32:48], record_offset, i, ..]
-  push 20*8             ;; [160, pk[0:32], addr<<96, pk[0:32], pk[32:48], record_offset, i, ..]
-  shr                   ;; [pk[0:32]>>160, addr<<96, pk[0:32], pk[32:48], record_offset, i, ..]
-  or                    ;; [first, pk[0:32], pk[32:48], record_offset, i, ..]
-
-  ;; Store first element at offset = i*RECORD_SIZE.
-  dup4                  ;; [record_offset, first, pk[0:32], pk[32:48], record_offset, i, ..]
+  
+  ;; Store addr at offset = i*RECORD_SIZE.
+  dup4                  ;; [record_offset, addr<<96, pk[0:32], pk[32:48], record_offset, i, ..]
   mstore                ;; [pk[0:32], pk[32:48], record_offset, i, ..]
 
-  ;; Compute second element B[12:32] ++ C[0:12].
-  push 12*8             ;; [96, pk[0:32], pk[32:48], record_offset, i, ..]
-  shl                   ;; [pk[0:32]<<96, pk[32:48], record_offset, i, ..]
-  dup2                  ;; [pk[32:48], pk[0:32]<<96, pk[32:48], record_offset, i, ..]
-  push 20*8             ;; [160, pk[32:48], pk[0:32]<<96, pk[32:48], record_offset, i, ..]
-  shr                   ;; [pk[32:48]>>160, pk[0:32]<<96, pk[32:48], record_offset, i, ..]
-  or                    ;; [second, pk[32:48], record_offset, i, ..]]
-
-  ;; Store second element at offset = i*RECORD_SIZE + 32.
-  dup3                  ;; [record_offset, second, pk[32:48], record_offset, i, ..]
-  push 32               ;; [32, record_offset, second, pk[32:48], record_offset, i, ..]
-  add                   ;; [record_offset+32, second, pk[32:48], record_offset, i, ..]
+  ;; Store pk[0:32] at offset = i*RECORD_SIZE + 20.
+  dup3                  ;; [record_offset, pk[0:32], pk[32:48], record_offset, i, ..]
+  push 20               ;; [20, record_offset, pk[0:32], pk[32:48], record_offset, i, ..]
+  add                   ;; [record_offset+20, pk[0:32], pk[32:48], record_offset, i, ..]
   mstore                ;; [pk[32:48], record_offset, i, ..]
 
-  ;; Compute third element: C[12:16].
-  push 12*8             ;; [96, pk[32:48], record_offset, i, ..]
-  shl                   ;; [third, record_offset, i, ..]
-
-  ;; Store third element at offset = i*RECORD_SIZE + 64.
-  swap1                 ;; [record_offset, third, i, ..]
-  push 64               ;; [64, record_offset, third, i, ..]
-  add                   ;; [record_offset+64, third, i, ..]
+  ;; Store pk[32:48] at offset = i*RECORD_SIZE + 52.
+  swap1                 ;; [record_offset, pk[32:48], i, ..]
+  push 52               ;; [52, record_offset, pk[32:48], i, ..]
+  add                   ;; [record_offset+52, pk[32:48], i, ..]
   mstore                ;; [i, ..]
 
   ;; Increment i.
