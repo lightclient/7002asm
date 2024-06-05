@@ -1,0 +1,19 @@
+;; Store 1181 as a temporary excess value as it creates a fee so large that no
+;; request will be accepted in the queue until after 7002 is activated and
+;; called by the system for the first time.
+push 1181
+push0
+sstore
+
+;; Copy and return code.
+push @.end - @.start
+dup1
+push @.start
+push0
+codecopy
+push0
+return
+
+.start:
+#assemble "withdrawal.eas"
+.end:

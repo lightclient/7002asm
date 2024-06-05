@@ -3,12 +3,23 @@ set -euf -o pipefail
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 
-BYTECODE="$(geas "src/main.eas")"
-BYTECODE2="$(geas "src/fake_expo_test.eas")"
+WITHDRAWAL_BYTECODE="$(geas "src/withdrawal.eas")"
+FAKE_EXPO_BYTECODE="$(geas "src/fake_expo_test.eas")"
+
+CONSOLODATION_BYTECODE="$(geas "src/consolidation.eas")"
 
 sed \
-    -e "s/@bytecode@/$BYTECODE/" \
-    -e "s/@bytecode2@/$BYTECODE2/" \
-    "$SCRIPT_DIR/test/Contract.t.sol.in" > "$SCRIPT_DIR/test/Contract.t.sol"
+    -e "s/@bytecode@/$WITHDRAWAL_BYTECODE/" \
+    -e "s/@bytecode2@/$FAKE_EXPO_BYTECODE/" \
+    "$SCRIPT_DIR/test/Withdrawal.t.sol.in" > "$SCRIPT_DIR/test/Withdrawal.t.sol"
+
+sed \
+    -e "s/@bytecode@/$FAKE_EXPO_BYTECODE/" \
+    "$SCRIPT_DIR/test/FakeExpo.t.sol.in" > "$SCRIPT_DIR/test/FakeExpo.t.sol"
+
+sed \
+    -e "s/@bytecode@/$CONSOLODATION_BYTECODE/" \
+    -e "s/@bytecode2@/$FAKE_EXPO_BYTECODE/" \
+    "$SCRIPT_DIR/test/Consolidation.t.sol.in" > "$SCRIPT_DIR/test/Consolidation.t.sol"
 
 forge "$@" --evm-version shanghai

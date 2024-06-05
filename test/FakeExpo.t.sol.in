@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import "./TestHelper.sol";
+
+contract FakeExpoTest is TestHelper {
+  function setUp() public {
+    vm.etch(fakeExpo, hex"@bytecode@");
+  }
+
+  // testFakeExpo calls the fake exponentiation logic with specific values.
+  function testFakeExpo() public {
+    assertEq(callFakeExpo(1, 100, 17), 357);
+  }
+}

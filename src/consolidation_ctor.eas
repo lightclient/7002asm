@@ -15,5 +15,5 @@ push0
 return
 
 .start:
-#assemble "main.eas"
+#assemble "consolidation.eas"
 .end:
