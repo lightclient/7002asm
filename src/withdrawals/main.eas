@@ -142,6 +142,22 @@ check_input:
   swap1                 ;; [slot, pk2_am, ..]
   sstore                ;; [..]
 
+  ;; Assemble log data.
+  caller                ;; [caller, ..]
+  push1 96              ;; [96, caller, ..]
+  shl                   ;; [caller, ..]
+  push0                 ;; [0, caller, ..]
+  mstore                ;; [..]
+  push1 INPUT_SIZE      ;; [size, ..]
+  push0                 ;; [ost, size, ..]
+  push1 20              ;; [dest, ost, size, ..]
+  calldatacopy          ;; [..]
+
+  ;; Log record.
+  push1 RECORD_SIZE     ;; [size, ..]
+  push0                 ;; [idx, size, ..]
+  log0                  ;; [..]
+
   ;; Increment queue tail over last and write to storage.
   push1 1               ;; [1, tail_idx]
   add                   ;; [tail_idx+1]

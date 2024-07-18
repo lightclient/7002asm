@@ -32,8 +32,19 @@ contract ConsolidationTest is Test {
   // request count is accepted and read successfully.
   function testConsolidation() public {
     bytes memory data = hex"111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222";
+
+    vm.expectEmitAnonymous(false, false, false, false, true);
+    assembly {
+      let ptr := mload(0x40)
+      mstore(ptr, shl(96, address()))
+      mstore(add(ptr, 20), mload(add(data, 32)))
+      mstore(add(ptr, 52), mload(add(data, 64)))
+      mstore(add(ptr, 84), mload(add(data, 96)))
+      log0(ptr, 116)
+    }
+
     (bool ret,) = addr.call{value: 2}(data);
-    assertEq(ret, true);
+    assertEq(ret, true, "call failed");
     assertStorage(count_slot, 1, "unexpected request count");
     assertExcess(0);
 
