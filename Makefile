@@ -38,6 +38,13 @@ build: $(GEAS)
 	mkdir -p bytecode/factory
 	$(GEAS) -a -no-nl -o bytecode/factory/main.hex src/factory/main.eas
 
+	# 8272
+	# -no-stackcheck: SLOTNUM (EIP-7843, 0x4b) is not yet a named geas mnemonic,
+	# so it is emitted as a raw byte the stack checker cannot see through.
+	mkdir -p bytecode/recent_root
+	$(GEAS) -a -no-nl -no-stackcheck -o bytecode/recent_root/main.hex src/recent_root/main.eas
+	$(GEAS) -a -no-nl -no-stackcheck -o bytecode/recent_root/ctor.hex src/recent_root/ctor.eas
+
 	# test helper
 	mkdir -p bytecode/fake_expo_test
 	$(GEAS) -a -no-nl -o bytecode/fake_expo_test/main.hex src/common/fake_expo_test.eas
