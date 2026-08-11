@@ -34,6 +34,11 @@ build: $(GEAS)
 	$(GEAS) -a -no-nl -o bytecode/builder_exits/main.hex src/builder_exits/main.eas
 	$(GEAS) -a -no-nl -o bytecode/builder_exits/ctor.hex src/builder_exits/ctor.eas
 
+	# 8205
+	mkdir -p bytecode/preregistrations
+	$(GEAS) -a -no-nl -o bytecode/preregistrations/main.hex src/preregistrations/main.eas
+	$(GEAS) -a -no-nl -o bytecode/preregistrations/ctor.hex src/preregistrations/ctor.eas
+
 	# 7997
 	mkdir -p bytecode/factory
 	$(GEAS) -a -no-nl -o bytecode/factory/main.hex src/factory/main.eas
