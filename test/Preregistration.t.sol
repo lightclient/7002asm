@@ -7,7 +7,7 @@ uint256 constant target_per_block = 1;
 uint256 constant max_per_block = 4;
 uint256 constant inhibitor = uint256(bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff));
 
-uint256 constant slots_per_item = 7;
+uint256 constant slots_per_item = 6;
 
 contract PreregistrationTest is Test {
   function setUp() public {
@@ -72,11 +72,10 @@ contract PreregistrationTest is Test {
   function testPreregistration() public {
     bytes memory data = makePreregistration(0x11);
 
-    // The record (caller ++ input) is emitted verbatim as an anonymous log.
-    bytes memory record = bytes.concat(bytes20(address(this)), data);
+    // The accepted input is emitted verbatim as an anonymous log.
     vm.expectEmitAnonymous(false, false, false, false, true);
     assembly {
-      log0(add(record, 32), mload(record))
+      log0(add(data, 32), mload(data))
     }
 
     (bool ret,) = addr.call{value: 2}(data);
@@ -85,8 +84,8 @@ contract PreregistrationTest is Test {
     assertExcess(0);
 
     bytes memory req = getRequests();
-    assertEq(req.length, 196);
-    assertEq(req, record, "unexpected record");
+    assertEq(req.length, 176);
+    assertEq(req, data, "unexpected record");
     assertStorage(count_slot, 0, "unexpected request count");
     assertStorage(queue_head_slot, 0, "expected queue head reset");
     assertStorage(queue_tail_slot, 0, "expected queue tail reset");
@@ -137,6 +136,23 @@ contract PreregistrationTest is Test {
     // Simulate syscall, read only the max requests per block.
     checkPreregistrations(9, max_per_block);
     assertExcess(10);
+  }
+
+  // testFeeChangesOnlyAfterSystemCall verifies requests admitted during the
+  // current block do not affect the fee until the next system call.
+  function testFeeChangesOnlyAfterSystemCall() public {
+    vm.store(addr, bytes32(excess_slot), bytes32(uint256(12)));
+    assertEq(computeFee(12), 1, "unexpected fee below boundary");
+    assertEq(computeFee(13), 2, "unexpected fee above boundary");
+
+    for (uint256 i = 0; i < 3; i++) {
+      addRequest(address(uint160(i)), makePreregistration(i), 1);
+      assertExcess(12);
+    }
+    assertStorage(count_slot, 3, "unexpected request count");
+
+    checkPreregistrations(0, 3);
+    assertExcess(14);
   }
 
   // testFee adds many requests and verifies the excess decreases correctly until
@@ -266,27 +282,24 @@ contract PreregistrationTest is Test {
 
     // Verify the request was written to the queue.
     uint256 idx = queue_storage_offset+tail*slots_per_item;
-    assertStorage(idx,   uint256(uint160(from)), "addr not written to queue");
-    assertStorage(idx+1, toFixed(req, 0, 32),    "pk[0:32] not written to queue");
-    assertStorage(idx+2, toFixed(req, 32, 64),   "pk[32:48] ++ wc[0:16] not written to queue");
-    assertStorage(idx+3, toFixed(req, 64, 96),   "wc[16:32] ++ sig[0:16] not written to queue");
-    assertStorage(idx+4, toFixed(req, 96, 128),  "sig[16:48] not written to queue");
-    assertStorage(idx+5, toFixed(req, 128, 160), "sig[48:80] not written to queue");
-    assertStorage(idx+6, toFixed(req, 160, 176), "sig[80:96] not written to queue");
+    assertStorage(idx,   toFixed(req, 0, 32),    "pk[0:32] not written to queue");
+    assertStorage(idx+1, toFixed(req, 32, 64),   "pk[32:48] ++ wc[0:16] not written to queue");
+    assertStorage(idx+2, toFixed(req, 64, 96),   "wc[16:32] ++ sig[0:16] not written to queue");
+    assertStorage(idx+3, toFixed(req, 96, 128),  "sig[16:48] not written to queue");
+    assertStorage(idx+4, toFixed(req, 128, 160), "sig[48:80] not written to queue");
+    assertStorage(idx+5, toFixed(req, 160, 176), "sig[80:96] not written to queue");
   }
 
   // checkPreregistrations will simulate a system call to the system contract
   // and verify the expected preregistration requests are returned.
   //
-  // It assumes that addresses are stored as uint256(index) and requests were
-  // created with makePreregistration.
+  // It assumes requests were created with makePreregistration.
   function checkPreregistrations(uint256 startIndex, uint256 count) internal returns (uint256) {
     bytes memory requests = getRequests();
-    assertEq(requests.length, count*196);
+    assertEq(requests.length, count*176);
     for (uint256 i = 0; i < count; i++) {
-      uint256 offset = i*196;
-      assertEq(toFixed(requests, offset, offset+20) >> 96, uint256(startIndex+i), "unexpected request address returned");
-      assertEq(slice(requests, offset+20, 176), makePreregistration(startIndex+i), "unexpected request record returned");
+      uint256 offset = i*176;
+      assertEq(slice(requests, offset, 176), makePreregistration(startIndex+i), "unexpected request record returned");
     }
     return count;
   }
@@ -302,4 +315,5 @@ contract PreregistrationTest is Test {
     }
     return out;
   }
+
 }

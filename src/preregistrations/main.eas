@@ -41,8 +41,8 @@
 #define EXCESS_INHIBITOR = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 #define INPUT_SIZE = 176   ; the size of (pubkey ++ withdrawal_credentials ++ signature)
-#define RECORD_SIZE = 196  ; the size of (address ++ pubkey ++ withdrawal_credentials ++ signature)
-#define SLOTS_PER_ITEM = 7 ; (addr, pk[0:32], pk[32:48]+wc[0:16], wc[16:32]+sig[0:16], sig[16:48], sig[48:80], sig[80:96])
+#define RECORD_SIZE = 176  ; the size of (pubkey ++ withdrawal_credentials ++ signature)
+#define SLOTS_PER_ITEM = 6 ; (pk[0:32], pk[32:48]+wc[0:16], wc[16:32]+sig[0:16], sig[16:48], sig[48:80], sig[80:96])
 
 ;;; ----------------------------------------------------------------------------
 ;;; PROGRAM START --------------------------------------------------------------
@@ -59,7 +59,9 @@
 ;;; USER SUBROUTINE ----------------------------------------------------------
 ;;; --------------------------------------------------------------------------
 
-    ;; Compute the fee using fake expo and the current excess requests.
+    ;; Compute the fee using fake expo and the persisted excess requests. As in
+    ;; EIP-7002 and EIP-7251, the current block count is incorporated only by the
+    ;; end-of-block system call.
     push FEE_UPDATE_FRACTION
     push SLOT_EXCESS       ; [excess_slot, update_fraction]
     sload                  ; [excess, update_fraction]
@@ -126,14 +128,6 @@ handle_input:
     push QUEUE_OFFSET      ; [offset, slots*tail_idx, tail_idx]
     add                    ; [slot, tail_idx]
 
-    ;; Write address to queue.
-    caller                 ; [caller, slot, ..]
-    dup2                   ; [slot, caller, slot, ..]
-    sstore                 ; [slot, ..]
-
-    push 1                 ; [1, slot, ..]
-    add                    ; [slot, ..]
-
     ;; Store pk[0:32] to queue.
     push 0                 ; [0, slot, ..]
     calldataload           ; [pk[0:32], slot, ..]
@@ -187,14 +181,9 @@ handle_input:
     sstore                 ; [..]
 
     ;; Assemble log data.
-    caller                 ; [caller, ..]
-    push 96                ; [96, caller, ..]
-    shl                    ; [caller, ..]
-    push 0                 ; [0, caller, ..]
-    mstore                 ; [..]
     push INPUT_SIZE        ; [size, ..]
     push 0                 ; [ost, size, ..]
-    push 20                ; [dest, ost, size, ..]
+    push 0                 ; [dest, ost, size, ..]
     calldatacopy           ; [..]
 
     ;; Emit the record as an anonymous log.
@@ -222,10 +211,10 @@ handle_input:
 ;;;
 ;;;  Preregistration request record:
 ;;;
-;;;  +------+--------+------------------------+-----------+
-;;;  | addr | pubkey | withdrawal_credentials | signature |
-;;;  +------+--------+------------------------+-----------+
-;;;     20      48               32                 96
+;;;  +--------+------------------------+-----------+
+;;;  | pubkey | withdrawal_credentials | signature |
+;;;  +--------+------------------------+-----------+
+;;;      48               32                96
 ;;;
 ;;; Because the requests are stored across SLOTS_PER_ITEM storage slots, there is
 ;;; some shuffling to align the data.
@@ -270,49 +259,41 @@ accum_loop:
     eq                     ; [i == count, i, count, head_idx, tail_idx]
     jumpi @update_head     ; [i, count, head_idx, tail_idx]
 
-    ;; Determine the storage slot of the address for this iteration. This value
-    ;; is also the base for the other storage slots containing the pubkey,
-    ;; withdrawal credentials, and signature. The base slot will be
-    ;; (queue_offset + (queue_head + i)*7).
+    ;; Determine the base storage slot for this iteration. The base slot will be
+    ;; (queue_offset + (queue_head + i)*6).
     dup3                   ; [head_idx, i, ..]
     dup2                   ; [i, head_idx, i, ..]
     add                    ; [i+head_idx, i, ..]
-    push SLOTS_PER_ITEM    ; [7, i+head_idx, i, ..]
-    mul                    ; [7*(i+head_idx), i, ..]
-    push QUEUE_OFFSET      ; [offset, 7*(i+head_idx), i, ..]
+    push SLOTS_PER_ITEM    ; [6, i+head_idx, i, ..]
+    mul                    ; [6*(i+head_idx), i, ..]
+    push QUEUE_OFFSET      ; [offset, 6*(i+head_idx), i, ..]
     add                    ; [slotbase, i, ..]
 
-    ;; Write values to memory flat and contiguously. This requires combining the
-    ;; seven storage elements (addr, pk1, pk2_wc1, wc2_sg1, sg2, sg3, sg4) so
-    ;; there is no padding.
+    ;; Write values to memory flat and contiguously.
     ;;
     ;; The slots have the following layout:
     ;;
-    ;; 0: addr
-    ;;  0x00 | 00 00 00 00 00 00 00 00 00 00 00 00 aa aa aa aa
-    ;;  0x10 | aa aa aa aa aa aa aa aa aa aa aa aa aa aa aa aa
-    ;;
-    ;; 1: pk[0:32] -> pk1
+    ;; 0: pk[0:32] -> pk1
     ;;  0x00 | bb bb bb bb bb bb bb bb bb bb bb bb bb bb bb bb
     ;;  0x10 | bb bb bb bb bb bb bb bb bb bb bb bb bb bb bb bb
     ;;
-    ;; 2: pk[32:48] ++ wc[0:16] -> pk2_wc1
+    ;; 1: pk[32:48] ++ wc[0:16] -> pk2_wc1
     ;;  0x00 | bb bb bb bb bb bb bb bb bb bb bb bb bb bb bb bb
     ;;  0x10 | cc cc cc cc cc cc cc cc cc cc cc cc cc cc cc cc
     ;;
-    ;; 3: wc[16:32] ++ sig[0:16] -> wc2_sg1
+    ;; 2: wc[16:32] ++ sig[0:16] -> wc2_sg1
     ;;  0x00 | cc cc cc cc cc cc cc cc cc cc cc cc cc cc cc cc
     ;;  0x10 | dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd
     ;;
-    ;; 4: sig[16:48] -> sg2
+    ;; 3: sig[16:48] -> sg2
     ;;  0x00 | dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd
     ;;  0x10 | dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd
     ;;
-    ;; 5: sig[48:80] -> sg3
+    ;; 4: sig[48:80] -> sg3
     ;;  0x00 | dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd
     ;;  0x10 | dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd
     ;;
-    ;; 6: sig[80:96] -> sg4
+    ;; 5: sig[80:96] -> sg4
     ;;  0x00 | dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd dd
     ;;  0x10 | 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
 
@@ -321,27 +302,11 @@ accum_loop:
     push RECORD_SIZE       ; [size, i, slotbase, i, ..]
     mul                    ; [offset=size*i, slotbase, i, ..]
 
-    ;; Read slot 'addr' from storage.
-    dup2                   ; [slotbase, offset, slotbase, ..]
-    sload                  ; [addr, offset, slotbase, ..]
-
-    ;; Shift addr bytes.
-    push 12 * 8            ; [96, addr, offset, slotbase, ..]
-    shl                    ; [addr<<96, offset, slotbase, ..]
-
-    ;; Store addr at offset = i*RECORD_SIZE.
-    dup2                   ; [offset, addr<<96, offset, slotbase, ..]
-    mstore                 ; [offset, slotbase, ..]
-    push 20                ; [20, offset, slotbase, ..]
-    add                    ; [offset=offset+20, slotbase, ..]
-
     ;; Read slot 'pk1' from storage.
     dup2                   ; [slotbase, offset, slotbase, ..]
-    push 1                 ; [1, slotbase, offset, slotbase, ..]
-    add                    ; [slot, offset, slotbase, ..]
     sload                  ; [pk1, offset, slotbase, ..]
 
-    ;; Store pk1 at output offset = i*RECORD_SIZE + 20.
+    ;; Store pk1 at output offset = i*RECORD_SIZE.
     dup2                   ; [offset, pk1, offset, slotbase, ..]
     mstore                 ; [offset, slotbase, ..]
     push 32                ; [32, offset, slotbase, ..]
@@ -349,11 +314,11 @@ accum_loop:
 
     ;; Read slot 'pk2_wc1' from storage.
     dup2                   ; [slotbase, offset, slotbase, ..]
-    push 2                 ; [2, slotbase, offset, slotbase, ..]
+    push 1                 ; [1, slotbase, offset, slotbase, ..]
     add                    ; [slot, offset, slotbase, ..]
     sload                  ; [pk2_wc1, offset, slotbase, ..]
 
-    ;; Store pk2_wc1 at output offset = i*RECORD_SIZE + 52.
+    ;; Store pk2_wc1 at output offset = i*RECORD_SIZE + 32.
     dup2                   ; [offset, pk2_wc1, offset, slotbase, ..]
     mstore                 ; [offset, slotbase, ..]
     push 32                ; [32, offset, slotbase, ..]
@@ -361,11 +326,11 @@ accum_loop:
 
     ;; Read slot 'wc2_sg1' from storage.
     dup2                   ; [slotbase, offset, slotbase, ..]
-    push 3                 ; [3, slotbase, offset, slotbase, ..]
+    push 2                 ; [2, slotbase, offset, slotbase, ..]
     add                    ; [slot, offset, slotbase, ..]
     sload                  ; [wc2_sg1, offset, slotbase, ..]
 
-    ;; Store wc2_sg1 at output offset = i*RECORD_SIZE + 84.
+    ;; Store wc2_sg1 at output offset = i*RECORD_SIZE + 64.
     dup2                   ; [offset, wc2_sg1, offset, slotbase, ..]
     mstore                 ; [offset, slotbase, ..]
     push 32                ; [32, offset, slotbase, ..]
@@ -373,11 +338,11 @@ accum_loop:
 
     ;; Read slot 'sg2' from storage.
     dup2                   ; [slotbase, offset, slotbase, ..]
-    push 4                 ; [4, slotbase, offset, slotbase, ..]
+    push 3                 ; [3, slotbase, offset, slotbase, ..]
     add                    ; [slot, offset, slotbase, ..]
     sload                  ; [sg2, offset, slotbase, ..]
 
-    ;; Store sg2 at output offset = i*RECORD_SIZE + 116.
+    ;; Store sg2 at output offset = i*RECORD_SIZE + 96.
     dup2                   ; [offset, sg2, offset, slotbase, ..]
     mstore                 ; [offset, slotbase, ..]
     push 32                ; [32, offset, slotbase, ..]
@@ -385,11 +350,11 @@ accum_loop:
 
     ;; Read slot 'sg3' from storage.
     dup2                   ; [slotbase, offset, slotbase, ..]
-    push 5                 ; [5, slotbase, offset, slotbase, ..]
+    push 4                 ; [4, slotbase, offset, slotbase, ..]
     add                    ; [slot, offset, slotbase, ..]
     sload                  ; [sg3, offset, slotbase, ..]
 
-    ;; Store sg3 at output offset = i*RECORD_SIZE + 148.
+    ;; Store sg3 at output offset = i*RECORD_SIZE + 128.
     dup2                   ; [offset, sg3, offset, slotbase, ..]
     mstore                 ; [offset, slotbase, ..]
     push 32                ; [32, offset, slotbase, ..]
@@ -399,11 +364,11 @@ accum_loop:
     ;; next record overwrites the trailing zero bytes, or the return size cuts
     ;; them off for the final record.
     swap1                  ; [slotbase, offset, ..]
-    push 6                 ; [6, slotbase, offset, ..]
+    push 5                 ; [5, slotbase, offset, ..]
     add                    ; [slot, offset, ..]
     sload                  ; [sg4, offset, ..]
 
-    ;; Store sg4 at output offset = i*RECORD_SIZE + 180.
+    ;; Store sg4 at output offset = i*RECORD_SIZE + 160.
     swap1                  ; [offset, sg4, ..]
     mstore                 ; [..]
 
