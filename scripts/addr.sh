@@ -45,7 +45,11 @@ case $1 in
     echo "searching for builder_exits deployment data "
     bin/nick search --score=$score --initcode="0x$(cat bytecode/builder_exits/ctor.hex)" --prefix=0x8282 --suffix=0xeeee --gaslimit=$gaslimit
     ;;
+  sweep_thresholds|sts|8148)
+    echo "searching for sweep threshold deployment data "
+    bin/nick search --score=$score --initcode="0x$(cat bytecode/sweep_thresholds/ctor.hex)" --prefix=0x0000 --suffix=0xffff
+    ;;
   *)
-    echo "Invalid option. Usage: $0 {withdrawals|consolidations|exechash|beaconroot}"
+    echo "Invalid option. Usage: $0 {withdrawals|consolidations|exechash|beaconroot|builder_deposits|builder_exits|sweep_thresholds}"
     ;;
 esac
