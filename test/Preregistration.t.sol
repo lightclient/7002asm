@@ -260,6 +260,122 @@ contract PreregistrationTest is Test {
     assertStorage(excess_slot, inhibitor-target_per_block-1, "didn't expect excess to be reset");
   }
 
+  // testSystemCallWithInput verifies that a system call with input drains the
+  // queue and sets the inhibitor to prevent further additions.
+  function testSystemCallWithInput() public {
+    addRequest(address(this), makePreregistration(1), 1);
+
+    // Disable the queue with a system call that carries input data.
+    vm.prank(sysaddr);
+    (bool ret, bytes memory data) = addr.call(hex"01");
+    assertEq(ret, true);
+    assertEq(data.length, 176, "system call should drain the queue");
+    assertEq(data, makePreregistration(1), "unexpected drained record");
+    assertStorage(excess_slot, inhibitor, "expected inhibitor in excess storage slot");
+    assertStorage(count_slot, 0, "expected count reset by the disabling call");
+
+    // Check that requesting the current fee fails.
+    (ret,) = addr.staticcall("");
+    assertEq(ret, false, "expected fee getter to fail");
+
+    // Check that adding a request fails.
+    addFailedRequest(address(this), makePreregistration(2), 1);
+
+    // Now re-enable the queue through a system call with no input.
+    vm.prank(sysaddr);
+    (ret, data) = addr.call("");
+    assertEq(ret, true);
+    assertEq(data.length, 0, "system call should return empty data since there are no requests");
+    assertStorage(excess_slot, 0, "expected zero excess requests after re-enabling queue");
+
+    // Check that adding a request succeeds again.
+    addRequest(address(this), makePreregistration(3), 1);
+  }
+
+  // testQueueDisableFeeReset verifies that re-enabling the queue resets the fee
+  // to the floor.
+  function testQueueDisableFeeReset() public {
+    // Start from an elevated persisted excess so the fee is above the floor.
+    // The fee is computed from the persisted excess only, so every request in
+    // this block pays the same elevated fee.
+    vm.store(addr, bytes32(excess_slot), bytes32(uint256(100)));
+    uint256 fee = computeFee(100);
+    assertEq(fee, 357, "unexpected fee for excess 100");
+
+    uint256 requestCount = max_per_block*4;
+    for (uint256 i = 0; i < requestCount; i++) {
+      addRequest(address(uint160(i)), makePreregistration(i), fee);
+    }
+    assertStorage(count_slot, requestCount, "unexpected request count");
+
+    // Disable the queue with a system call that carries input data. The excess
+    // becomes the inhibitor instead of accumulating further.
+    vm.prank(sysaddr);
+    (bool ret, bytes memory data) = addr.call(hex"01");
+    assertEq(ret, true);
+    assertEq(data.length, max_per_block*176, "system call should drain the queue");
+    assertStorage(excess_slot, inhibitor, "expected inhibitor in excess storage slot");
+    assertStorage(count_slot, 0, "expected count reset by the disabling call");
+
+    // Now re-enable the queue through a system call with no input.
+    vm.prank(sysaddr);
+    (ret, data) = addr.call("");
+    assertEq(ret, true);
+    assertEq(data.length, max_per_block*176, "system call should drain the queue");
+    assertStorage(excess_slot, 0, "expected zero excess requests after re-enabling queue");
+
+    // Check that adding a request succeeds again with the minimum fee.
+    addRequest(address(uint160(999)), makePreregistration(999), 1);
+  }
+
+  // testRepeatedSystemCallWithInput verifies that a repeated system call with
+  // input keeps the queue disabled: the calldata dispatch precedes the
+  // re-enable check, so a disabling call never re-enables the queue. The
+  // repeated call uses a 176-byte payload to also verify that a system payload
+  // matching the user input size takes the system path and is not enqueued.
+  function testRepeatedSystemCallWithInput() public {
+    for (uint256 i = 0; i < 2*max_per_block+1; i++) {
+      addRequest(address(uint160(i)), makePreregistration(i), 1);
+    }
+
+    // Disable the queue; the first batch is drained as usual.
+    vm.prank(sysaddr);
+    (bool ret, bytes memory data) = addr.call(hex"01");
+    assertEq(ret, true);
+    assertEq(data.length, max_per_block*176, "first call should drain a full batch");
+    for (uint256 i = 0; i < max_per_block; i++) {
+      assertEq(slice(data, i*176, 176), makePreregistration(i), "unexpected record in first batch");
+    }
+    assertStorage(excess_slot, inhibitor, "expected inhibitor in excess storage slot");
+    assertStorage(count_slot, 0, "expected count reset by the disabling call");
+
+    // Repeat the disabling call with a 176-byte payload. The queue keeps
+    // draining, stays disabled, and the payload is not enqueued.
+    vm.prank(sysaddr);
+    (ret, data) = addr.call(makePreregistration(0xAA));
+    assertEq(ret, true);
+    assertEq(data.length, max_per_block*176, "second call should drain a full batch");
+    for (uint256 i = 0; i < max_per_block; i++) {
+      assertEq(slice(data, i*176, 176), makePreregistration(max_per_block+i), "unexpected record in second batch");
+    }
+    assertStorage(excess_slot, inhibitor, "queue must stay disabled after a repeated disabling call");
+    assertStorage(queue_tail_slot, 2*max_per_block+1, "system payload must not be enqueued");
+
+    // Adding a request still fails while disabled.
+    addFailedRequest(address(this), makePreregistration(0xBB), 1);
+
+    // A system call with no input drains the final record and re-enables the
+    // queue.
+    vm.prank(sysaddr);
+    (ret, data) = addr.call("");
+    assertEq(ret, true);
+    assertEq(data.length, 176, "final call should drain the last record");
+    assertEq(slice(data, 0, 176), makePreregistration(2*max_per_block), "unexpected final record");
+    assertStorage(excess_slot, 0, "expected zero excess after re-enabling queue");
+    assertStorage(queue_head_slot, 0, "expected queue head reset");
+    assertStorage(queue_tail_slot, 0, "expected queue tail reset");
+  }
+
   // --------------------------------------------------------------------------
   // helpers ------------------------------------------------------------------
   // --------------------------------------------------------------------------

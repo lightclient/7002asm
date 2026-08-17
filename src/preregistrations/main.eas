@@ -412,36 +412,38 @@ reset_queue:
     sstore                 ; [count]
 
 update_excess:
-    ;; Update the new excess preregistration requests.
+    ;; If the system call carries any input, disable the queue by storing the
+    ;; inhibitor into the excess slot. The queue was still drained above; a
+    ;; later system call with empty input re-enables the queue.
+    calldatasize           ; [calldatasize, count]
+    jumpi @set_inhibitor   ; [count]
+
+    ;; Load the current excess and the count of requests added in this block.
     push SLOT_EXCESS       ; [excess_slot, count]
     sload                  ; [excess, count]
-
-    ;; Check if excess needs to be reset to 0 for first iteration after
-    ;; activation.
-    dup1                   ; [excess, excess, count]
-    push EXCESS_INHIBITOR  ; [inhibitor, excess, excess, count]
-    eq                     ; [inhibitor == excess, excess, count]
-    iszero                 ; [inhibitor != excess, excess, count]
-    jumpi @skip_reset      ; [excess, count]
-
-    ;; Drop the excess from stack and use 0.
-    pop                    ; [count]
-    push 0                 ; [reset_excess, count]
-
-skip_reset:
     push SLOT_COUNT        ; [count_slot, excess, count]
-    sload                  ; [count, excess, count]
+    sload                  ; [added_count, excess, count]
+
+    ;; If the inhibitor is set, restore excess to zero. This activates the
+    ;; contract on the first system call after deployment and re-enables a
+    ;; disabled queue. User calls revert while the inhibitor is set, so
+    ;; added_count is always zero here.
+    dup2                   ; [excess, added_count, excess, count]
+    push EXCESS_INHIBITOR  ; [inhibitor, excess, added_count, excess, count]
+    eq                     ; [inhibitor == excess, added_count, excess, count]
+    jumpi @zero_excess     ; [added_count, excess, count]
 
     ;; If the sum of the previous excess requests and requests added in the
     ;; current block is greater than the target, subtract the target from the sum
     ;; and set it as the new excess requests value.
-    push TARGET_PER_BLOCK  ; [target, count, excess, count]
-    dup3                   ; [excess, target, count, excess, count]
-    dup3                   ; [count, excess, target, count, excess, count]
-    add                    ; [count+excess, target, count, excess, count]
-    gt                     ; [count+excess > target, count, excess, count]
-    jumpi @compute_excess  ; [count, excess, count]
+    push TARGET_PER_BLOCK  ; [target, added_count, excess, count]
+    dup3                   ; [excess, target, added_count, excess, count]
+    dup3                   ; [added_count, excess, target, added_count, excess, count]
+    add                    ; [added_count+excess, target, added_count, excess, count]
+    gt                     ; [added_count+excess > target, added_count, excess, count]
+    jumpi @compute_excess  ; [added_count, excess, count]
 
+zero_excess:
     ;; Zero out excess.
     pop                    ; [excess, count]
     pop                    ; [count]
@@ -449,10 +451,14 @@ skip_reset:
     jump @store_excess     ; [0, count]
 
 compute_excess:
-    add                    ; [count+excess, count]
-    push TARGET_PER_BLOCK  ; [target, count+excess, count]
-    swap1                  ; [count+excess, target, count]
+    add                    ; [added_count+excess, count]
+    push TARGET_PER_BLOCK  ; [target, added_count+excess, count]
+    swap1                  ; [added_count+excess, target, count]
     sub                    ; [new_excess, count]
+    jump @store_excess     ; [new_excess, count]
+
+set_inhibitor:             ; [count]
+    push EXCESS_INHIBITOR  ; [new_excess, count]
 
 store_excess:
     push SLOT_EXCESS       ; [excess_slot, new_excess, count]
