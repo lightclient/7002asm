@@ -45,7 +45,11 @@ case $1 in
     echo "searching for builder_exits deployment data "
     bin/nick search --score=$score --initcode="0x$(cat bytecode/builder_exits/ctor.hex)" --prefix=0x8282 --suffix=0xeeee --gaslimit=$gaslimit
     ;;
+  preregistrations|8205)
+    echo "searching for preregistrations deployment data "
+    bin/nick search --score=$score --initcode="0x$(cat bytecode/preregistrations/ctor.hex)" --prefix=0x8205 --suffix=0xffff --gaslimit=$gaslimit
+    ;;
   *)
-    echo "Invalid option. Usage: $0 {withdrawals|consolidations|exechash|beaconroot}"
+    echo "Invalid option. Usage: $0 {beaconroot|withdrawals|consolidations|exechash|builder_deposits|builder_exits|preregistrations} [score]"
     ;;
 esac
