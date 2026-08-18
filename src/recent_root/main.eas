@@ -16,7 +16,7 @@
 ;;; a call to an EIP-7702 account delegated here, the SSTORE lands in the
 ;;; executing account's own storage, so no explicit guard is needed for either.
 
-#pragma target "osaka"
+#pragma target "amsterdam"
 
 ;;; ENTRY_DOMAIN   = keccak256("RECENT_ROOT_ENTRY")
 #define ENTRY_DOMAIN   = 0x8f42481679c8e6fefa040974b3c905e0ce3f2e464ba93acdb074a41181617efc
@@ -24,13 +24,6 @@
 #define STORAGE_DOMAIN = 0xbdc897da2177d260ff5f4be5d4b2aad43f89c3347a305b584fa5a2546d053daa
 ;;; RECENT_ROOT_LENGTH - 1, the ring-buffer index mask (RECENT_ROOT_LENGTH = 8192).
 #define RING_MASK = 0x1fff
-
-;;; SLOTNUM (EIP-7843, opcode 0x4b) is not yet a named geas mnemonic; emit the
-;;; raw opcode. It pushes the current beacon slot. The stack checker cannot see
-;;; through the raw byte, so this contract is assembled with -no-stackcheck.
-#define %slotnum {
-    #bytes 0x4b
-}
 
     ;; Guard: reject a nonzero call value or a calldata length other than 64.
     callvalue           ; [value]
@@ -66,7 +59,7 @@ write:
     push ENTRY_DOMAIN   ; [ENTRY_DOMAIN, source_id, source_id]
     push1 0x40          ; [0x40, ENTRY_DOMAIN, source_id, source_id]
     mstore              ; [source_id, source_id]   mem[0x40..0x60] = ENTRY_DOMAIN
-    %slotnum            ; [slot, source_id, source_id]
+    slotnum             ; [slot, source_id, source_id]
     push1 0x68          ; [0x68, slot, source_id, source_id]
     mstore              ; [source_id, source_id]   mem[0x80..0x88] = uint64_be(slot)
     push1 0x60          ; [0x60, source_id, source_id]
@@ -86,7 +79,7 @@ write:
     push1 0xa8          ; [0xa8, STORAGE_DOMAIN, source_id, entry_hash, source_id]
     mstore              ; [source_id, entry_hash, source_id]   mem[0xa8..0xc8] = STORAGE_DOMAIN
     push2 RING_MASK     ; [0x1fff, source_id, entry_hash, source_id]
-    %slotnum            ; [slot, 0x1fff, source_id, entry_hash, source_id]
+    slotnum             ; [slot, 0x1fff, source_id, entry_hash, source_id]
     and                 ; [i, source_id, entry_hash, source_id]
     push1 0xd0          ; [0xd0, i, source_id, entry_hash, source_id]
     mstore              ; [source_id, entry_hash, source_id]   mem[0xe8..0xf0] = uint64_be(i)
