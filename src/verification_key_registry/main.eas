@@ -1,0 +1,153 @@
+;;; EIP-8357 EVM verification key registry.
+;;;
+;;; The system address registers a verification key together with its original
+;;; activation timestamp, or reactivates a previously registered key. Other
+;;; callers read either an explicit key or the current key by passing zero.
+
+#pragma target "prague"
+
+;;; -----------------------------------------------------------------------------
+;;; CONSTANTS -------------------------------------------------------------------
+;;; -----------------------------------------------------------------------------
+
+#define SYSADDR = .address(0xfffffffffffffffffffffffffffffffffffffffe)
+
+;;; -----------------------------------------------------------------------------
+;;; MACROS ----------------------------------------------------------------------
+;;; -----------------------------------------------------------------------------
+
+;;; Compute keccak256(key || uint256(1)), where key is already stored at
+;;; memory[0:32]. This is the Solidity mapping slot for the key's activation
+;;; timestamp.
+#define %activation_slot {
+    push 1             ; [1, ...]
+    push 32            ; [32, 1, ...]
+    mstore             ; [...]
+    push 64            ; [64, ...]
+    push 0             ; [0, 64, ...]
+    keccak256          ; [activation_slot, ...]
+}
+
+;;; -----------------------------------------------------------------------------
+;;; PROGRAM START ---------------------------------------------------------------
+;;; -----------------------------------------------------------------------------
+
+    ;; All calls must have zero value.
+    callvalue          ; [callvalue]
+    jumpi @throw       ; []
+
+    ;; The system address selects the update path. All other callers read.
+    caller             ; [caller]
+    push SYSADDR       ; [sysaddr, caller]
+    eq                 ; [caller==sysaddr]
+    jumpi @update      ; []
+
+    ;; A read takes exactly one bytes32 key.
+    push 32            ; [32]
+    calldatasize       ; [calldatasize, 32]
+    sub                ; [calldatasize-32]
+    jumpi @throw       ; []
+
+    ;; A zero key selects the current key stored in slot zero. A nonzero key is
+    ;; read directly.
+    push 0             ; [0]
+    calldataload       ; [key]
+    dup1               ; [key, key]
+    jumpi @read_key    ; [key]
+    sload              ; [current_key]
+
+read_key:              ; [key]
+    ;; Reject a zero current key and retain the selected key in memory.
+    dup1               ; [key, key]
+    iszero             ; [key==0, key]
+    jumpi @throw       ; [key]
+    push 0             ; [0, key]
+    mstore             ; []
+
+    ;; Load the selected key's original activation timestamp.
+    %activation_slot   ; [activation_slot]
+    sload              ; [timestamp]
+
+    dup1               ; [timestamp, timestamp]
+    iszero             ; [timestamp==0, timestamp]
+    jumpi @throw       ; [timestamp]
+    push 32            ; [32, timestamp]
+    mstore             ; []
+
+    ;; Return key || activation_timestamp.
+    push 64            ; [64]
+    push 0             ; [0, 64]
+    return             ; []
+
+update:                ; []
+    ;; A 32-byte system call reactivates a registered key.
+    push 32            ; [32]
+    calldatasize       ; [calldatasize, 32]
+    eq                 ; [calldatasize==32]
+    jumpi @reactivate  ; []
+
+    ;; A registration is key || activation_timestamp.
+    push 64            ; [64]
+    calldatasize       ; [calldatasize, 64]
+    sub                ; [calldatasize-64]
+    jumpi @throw       ; []
+
+    ;; The key must be nonzero.
+    push 0             ; [0]
+    calldataload       ; [key]
+    dup1               ; [key, key]
+    iszero             ; [key==0, key]
+    jumpi @throw       ; [key]
+    dup1               ; [key, key]
+    push 0             ; [0, key, key]
+    mstore             ; [key]
+
+    ;; A key may be registered only once.
+    %activation_slot   ; [activation_slot, key]
+    dup1               ; [activation_slot, activation_slot, key]
+    sload              ; [stored_timestamp, activation_slot, key]
+    jumpi @throw       ; [activation_slot, key]
+
+    ;; The activation timestamp must be in [1, 2**64 - 1].
+    push 32            ; [32, activation_slot, key]
+    calldataload       ; [timestamp, activation_slot, key]
+    dup1               ; [timestamp, timestamp, activation_slot, key]
+    iszero             ; [timestamp==0, timestamp, activation_slot, key]
+    jumpi @throw       ; [timestamp, activation_slot, key]
+    dup1               ; [timestamp, timestamp, activation_slot, key]
+    push 64            ; [64, timestamp, timestamp, activation_slot, key]
+    shr                ; [timestamp>>64, timestamp, activation_slot, key]
+    jumpi @throw       ; [timestamp, activation_slot, key]
+
+    ;; Store the timestamp at activation_slot(key), then make key current.
+    swap1              ; [activation_slot, timestamp, key]
+    sstore             ; [key]
+    push 0             ; [0, key]
+    sstore             ; []
+    stop               ; []
+
+reactivate:            ; []
+    ;; The key must be nonzero and already registered.
+    push 0             ; [0]
+    calldataload       ; [key]
+    dup1               ; [key, key]
+    iszero             ; [key==0, key]
+    jumpi @throw       ; [key]
+    dup1               ; [key, key]
+    push 0             ; [0, key, key]
+    mstore             ; [key]
+
+    %activation_slot   ; [activation_slot, key]
+    sload              ; [timestamp, key]
+    iszero             ; [timestamp==0, key]
+    jumpi @throw       ; [key]
+
+    ;; Make the historical key current without changing its timestamp.
+    push 0             ; [0, key]
+    sstore             ; []
+    stop               ; []
+
+throw:                 ; [...]
+    push 0             ; [0, ...]
+    push 0             ; [0, 0, ...]
+    revert             ; []
