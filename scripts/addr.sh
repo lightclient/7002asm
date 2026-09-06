@@ -37,6 +37,10 @@ case $1 in
     echo "searching for execution hash deployment data "
     bin/nick search --score=$score --initcode="0x$(cat bytecode/execution_hash/ctor.hex)" --prefix=0x0000 --suffix=0xcccc
     ;;
+  recent_root|rr|8272)
+    echo "searching for recent root deployment data "
+    bin/nick search --score=$score --initcode="0x$(cat bytecode/recent_root/ctor.hex)" --prefix=0x0000 --suffix=0x8272 --gaslimit=$gaslimit
+    ;;
   builder_deposits)
     echo "searching for builder_deposits deployment data "
     bin/nick search --score=$score --initcode="0x$(cat bytecode/builder_deposits/ctor.hex)" --prefix=0x8282 --suffix=0xdddd --gaslimit=$gaslimit

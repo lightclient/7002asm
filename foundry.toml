@@ -4,4 +4,4 @@ src = 'src'
 out = 'out'
 ffi = true
 libs = ['lib']
-fs_permissions = [{ access = "read", path = "./bytecode" }]
+fs_permissions = [{ access = "read", path = "./bytecode" }, { access = "read", path = "./test" }]

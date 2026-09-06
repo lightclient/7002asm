@@ -38,9 +38,18 @@ build: $(GEAS)
 	mkdir -p bytecode/factory
 	$(GEAS) -a -no-nl -o bytecode/factory/main.hex src/factory/main.eas
 
+	# 8272
+	mkdir -p bytecode/recent_root
+	$(GEAS) -a -no-nl -o bytecode/recent_root/main.hex src/recent_root/main.eas
+	$(GEAS) -a -no-nl -o bytecode/recent_root/ctor.hex src/recent_root/ctor.eas
+
 	# test helper
 	mkdir -p bytecode/fake_expo_test
 	$(GEAS) -a -no-nl -o bytecode/fake_expo_test/main.hex src/common/fake_expo_test.eas
+
+	# 8272 write-path test shim: SLOTNUM replaced by a fixed slot so the write
+	# path runs under the prague EVM, reproducing EIP-8272's reference vector.
+	$(GEAS) -a -no-nl -o test/recent_root_slotnum1.hex test/recent_root_slotnum1.eas
 
 checksums: build
 	shasum -a 256 -c checksums.txt
